@@ -1,42 +1,58 @@
-// ============================
-// رابط السيرفر (Backend API)
-// ============================
+/* ============================================
+   رابط الـ Backend (FastAPI)
+============================================ */
 const API_BASE = "https://amanai-1.onrender.com";
 
-// ============================
-// تهيئة الخريطة
-// ============================
-var map = L.map('map').setView([24.47, 39.61], 13);
+/* ============================================
+   إنشاء الخريطة
+============================================ */
+var map = L.map("map").setView([24.47, 39.61], 13);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap'
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "&copy; OpenStreetMap",
 }).addTo(map);
 
+/* طبقات */
 let incidentsLayer = null;
 let trafficLayer = null;
 let patrolLayer = null;
 let heatLayer = null;
 
-// ============================
-// تحديث الإحصائيات أعلى الصفحة
-// ============================
+/* ============================================
+   1) تحديث إحصائيات أعلى الصفحة
+============================================ */
 async function updateDashboardStats() {
     try {
         const res = await fetch(`${API_BASE}/dashboard-stats`);
         const data = await res.json();
 
-        document.getElementById("totalIncidents").innerText = data.total;
-        document.getElementById("highIncidents").innerText = data.high ?? 0;
-        document.getElementById("lastHourIncidents").innerText = data.last_hour;
-        document.getElementById("highPct").innerText = data.high_pct + "%";
+        document.getElementById("stat_total").innerText = data.total;
+        document.getElementById("stat_high").innerText = data.high;
+        document.getElementById("stat_last_hour").innerText = data.last_hour;
+        document.getElementById("stat_high_pct").innerText = data.high_pct + "%";
     } catch (e) {
         console.error("Error loading dashboard stats", e);
     }
 }
 
-// ============================
-// جلب البلاغات
-// ============================
+/* ============================================
+   تنظيف الطبقات
+============================================ */
+function clearLayers() {
+    if (incidentsLayer) map.removeLayer(incidentsLayer);
+    if (trafficLayer) map.removeLayer(trafficLayer);
+    if (patrolLayer) map.removeLayer(patrolLayer);
+    if (heatLayer) map.removeLayer(heatLayer);
+
+    incidentsLayer = null;
+    trafficLayer = null;
+    patrolLayer = null;
+    heatLayer = null;
+}
+
+/* ============================================
+   2) طبقة البلاغات (حوادث + ازدحام...)
+============================================ */
 async function loadIncidents() {
     clearLayers();
 
@@ -62,24 +78,30 @@ async function loadIncidents() {
             })
                 .bindPopup(
                     `
-                <b>نوع البلاغ:</b> ${inc.incident_type}<br>
-                <b>الخطورة:</b> ${inc.predicted_risk}<br>
-                <b>التوصية:</b> ${inc.recommendation}<br>
-                <b>المصدر:</b> ${inc.source}<br>
-                <b>الوقت:</b> ${inc.time}
-            `
+                    <b>نوع البلاغ:</b> ${inc.incident_type}<br>
+                    <b>الخطورة:</b> ${inc.predicted_risk}<br>
+                    <b>المرصودة:</b> ${inc.observed_risk}<br>
+                    <b>التوصية:</b> ${inc.recommendation}<br>
+                    <b>المصدر:</b> ${inc.source}<br>
+                    <b>الوقت:</b> ${inc.time}
+                `
                 )
                 .addTo(incidentsLayer);
         });
-
-    } catch (err) {
-        console.error("Error loading incidents:", err);
+    } catch (e) {
+        console.error("Error loading incidents", e);
     }
 }
 
-// ============================
-// طبقة المرور
-// ============================
+/* زر الواجهة */
+function toggleIncidentsLayer() {
+    loadIncidents();
+    showNotification("🔴 تم تفعيل طبقة الحوادث");
+}
+
+/* ============================================
+   3) طبقة المرور (Hotspots)
+============================================ */
 async function loadTrafficHotspots() {
     clearLayers();
 
@@ -106,29 +128,35 @@ async function loadTrafficHotspots() {
                 .bindPopup(`🚦 مستوى الازدحام: <b>${p.level}</b>`)
                 .addTo(trafficLayer);
         });
-
-    } catch (err) {
-        console.error("Error loading traffic hotspots:", err);
+    } catch (e) {
+        console.error("Error loading traffic layer", e);
     }
 }
 
-// ============================
-// تحليل الازدحام (AI)
-// ============================
-async function detectTraffic() {
+/* زر الواجهة */
+function toggleTrafficLayer() {
+    loadTrafficHotspots();
+    showNotification("🚦 تم تفعيل طبقة المرور");
+}
+
+/* ============================================
+   4) تحليل الازدحام تلقائيًا (AI)
+============================================ */
+async function detectTrafficAutomatically() {
     try {
         await fetch(`${API_BASE}/detect-traffic`);
         await loadIncidents();
         await updateDashboardStats();
-        alert("✔︎ تم تحليل الازدحام وإضافة بلاغات جديدة");
-    } catch (err) {
-        console.error("Error detectTraffic:", err);
+
+        showNotification("🔥 تم تحليل الازدحام وإضافة بلاغات جديدة");
+    } catch (e) {
+        console.error("Error in detectTraffic:", e);
     }
 }
 
-// ============================
-// تمركز الدوريات
-// ============================
+/* ============================================
+   5) تمركز الدوريات (Forecast)
+============================================ */
 async function loadPatrolForecast() {
     clearLayers();
 
@@ -143,21 +171,28 @@ async function loadPatrolForecast() {
                 icon: L.divIcon({
                     className: "patrol-icon",
                     html: "🚔",
-                    iconSize: [30, 30]
-                })
+                    iconSize: [30, 30],
+                }),
             })
-                .bindPopup("🚓 تمركز مقترح للدورية")
+                .bindPopup("🚓 موقع مقترح لتمركز الدورية")
                 .addTo(patrolLayer);
         });
 
-    } catch (err) {
-        console.error("Error loading patrol forecast:", err);
+        showNotification("🚔 تم استعراض أفضل تمركز للدوريات");
+
+    } catch (e) {
+        console.error("Error loading patrol forecast", e);
     }
 }
 
-// ============================
-// Heatmap
-// ============================
+/* زر الواجهة */
+function forecastPatrolZones() {
+    loadPatrolForecast();
+}
+
+/* ============================================
+   6) Heatmap (في حال أردت تفعيلها لاحقًا)
+============================================ */
 async function loadHeatmap() {
     clearLayers();
 
@@ -167,32 +202,32 @@ async function loadHeatmap() {
 
         heatLayer = L.heatLayer(
             points.map((p) => [p.lat, p.lng, p.weight]),
-            { radius: 25, maxZoom: 17 }
+            { radius: 25 }
         ).addTo(map);
 
-    } catch (err) {
-        console.error("Error loading heatmap:", err);
+        showNotification("🌡 تم تفعيل الخريطة الحرارية");
+
+    } catch (e) {
+        console.error("Error Loading Heatmap", e);
     }
 }
 
-// ============================
-// تنظيف كل الطبقات
-// ============================
-function clearLayers() {
-    if (incidentsLayer) map.removeLayer(incidentsLayer);
-    if (trafficLayer) map.removeLayer(trafficLayer);
-    if (patrolLayer) map.removeLayer(patrolLayer);
-    if (heatLayer) map.removeLayer(heatLayer);
+/* ============================================
+   7) إشعار أعلى الخريطة
+============================================ */
+function showNotification(text) {
+    const box = document.getElementById("map-notify");
+    box.innerText = text;
+    box.style.display = "block";
 
-    incidentsLayer = null;
-    trafficLayer = null;
-    patrolLayer = null;
-    heatLayer = null;
+    setTimeout(() => {
+        box.style.display = "none";
+    }, 2500);
 }
 
-// ============================
-// عند تحميل الصفحة
-// ============================
+/* ============================================
+   8) عند تحميل الصفحة
+============================================ */
 window.onload = function () {
     updateDashboardStats();
     loadIncidents();
