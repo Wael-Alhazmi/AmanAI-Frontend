@@ -1,176 +1,199 @@
-/* ============================
-   إعداد رابط API الأساسي
-============================ */
-const API_BASE_URL = "https://amanai-1.onrender.com";
+// ============================
+// رابط السيرفر (Backend API)
+// ============================
+const API_BASE = "https://amanai-1.onrender.com";
 
-/* ============================
-   تحميل الإحصائيات
-============================ */
-async function loadDashboardStats() {
+// ============================
+// تهيئة الخريطة
+// ============================
+var map = L.map('map').setView([24.47, 39.61], 13);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+let incidentsLayer = null;
+let trafficLayer = null;
+let patrolLayer = null;
+let heatLayer = null;
+
+// ============================
+// تحديث الإحصائيات أعلى الصفحة
+// ============================
+async function updateDashboardStats() {
     try {
-        const res = await fetch(`${API_BASE_URL}/dashboard-stats`);
+        const res = await fetch(`${API_BASE}/dashboard-stats`);
         const data = await res.json();
 
-        document.getElementById("total-incidents").textContent = data.total;
-        document.getElementById("high-incidents").textContent = data.high;
-        document.getElementById("last-hour").textContent = data.last_hour;
-        document.getElementById("high-risk-pct").textContent = data.high_pct + "%";
-    } catch (err) {
-        console.error("خطأ في تحميل الإحصائيات:", err);
+        document.getElementById("totalIncidents").innerText = data.total;
+        document.getElementById("highIncidents").innerText = data.high ?? 0;
+        document.getElementById("lastHourIncidents").innerText = data.last_hour;
+        document.getElementById("highPct").innerText = data.high_pct + "%";
+    } catch (e) {
+        console.error("Error loading dashboard stats", e);
     }
 }
 
-/* ============================
-   تحميل البلاغات
-============================ */
+// ============================
+// جلب البلاغات
+// ============================
 async function loadIncidents() {
+    clearLayers();
+
     try {
-        const res = await fetch(`${API_BASE_URL}/incidents`);
+        const res = await fetch(`${API_BASE}/incidents`);
         const data = await res.json();
 
-        const tbody = document.getElementById("incidents-table-body");
-        tbody.innerHTML = "";
+        incidentsLayer = L.layerGroup().addTo(map);
 
-        data.forEach((item) => {
-            const row = `
-                <tr>
-                    <td>${item.id}</td>
-                    <td>${item.time}</td>
-                    <td>${item.incident_type}</td>
-                    <td>${item.observed_risk}</td>
-                    <td>${item.recommendation}</td>
-                    <td>${item.lat.toFixed(5)}, ${item.lng.toFixed(5)}</td>
-                    <td>${item.source}</td>
-                </tr>
-            `;
-            tbody.innerHTML += row;
+        data.forEach((inc) => {
+            let color =
+                inc.predicted_risk === "مرتفع"
+                    ? "red"
+                    : inc.predicted_risk === "متوسط"
+                    ? "orange"
+                    : "green";
+
+            L.circleMarker([inc.lat, inc.lng], {
+                radius: 8,
+                color: color,
+                fillColor: color,
+                fillOpacity: 0.8,
+            })
+                .bindPopup(
+                    `
+                <b>نوع البلاغ:</b> ${inc.incident_type}<br>
+                <b>الخطورة:</b> ${inc.predicted_risk}<br>
+                <b>التوصية:</b> ${inc.recommendation}<br>
+                <b>المصدر:</b> ${inc.source}<br>
+                <b>الوقت:</b> ${inc.time}
+            `
+                )
+                .addTo(incidentsLayer);
         });
+
     } catch (err) {
-        console.error("خطأ في تحميل البلاغات:", err);
+        console.error("Error loading incidents:", err);
     }
 }
 
-/* ============================
-   مسح جميع البلاغات
-============================ */
-async function clearIncidents() {
-    if (!confirm("هل أنت متأكد من مسح جميع البلاغات؟")) return;
+// ============================
+// طبقة المرور
+// ============================
+async function loadTrafficHotspots() {
+    clearLayers();
 
     try {
-        await fetch(`${API_BASE_URL}/clear-incidents`, { method: "POST" });
-        loadIncidents();
-        loadDashboardStats();
-        alert("تم مسح جميع البلاغات بنجاح.");
+        const res = await fetch(`${API_BASE}/traffic-hotspots`);
+        const data = await res.json();
+
+        trafficLayer = L.layerGroup().addTo(map);
+
+        data.forEach((p) => {
+            let color =
+                p.level === "مرتفع"
+                    ? "red"
+                    : p.level === "متوسط"
+                    ? "orange"
+                    : "green";
+
+            L.circleMarker([p.lat, p.lng], {
+                radius: 10,
+                color: color,
+                fillColor: color,
+                fillOpacity: 0.9,
+            })
+                .bindPopup(`🚦 مستوى الازدحام: <b>${p.level}</b>`)
+                .addTo(trafficLayer);
+        });
+
     } catch (err) {
-        console.error("خطأ في مسح البلاغات:", err);
+        console.error("Error loading traffic hotspots:", err);
     }
 }
 
-/* ============================
-   تحليل الازدحام (AI)
-============================ */
+// ============================
+// تحليل الازدحام (AI)
+// ============================
 async function detectTraffic() {
     try {
-        const res = await fetch(`${API_BASE_URL}/detect-traffic`);
-        const data = await res.json();
-
-        alert("تم تحليل الازدحام وإضافة بلاغات جديدة.");
-        loadIncidents();
-        loadDashboardStats();
+        await fetch(`${API_BASE}/detect-traffic`);
+        await loadIncidents();
+        await updateDashboardStats();
+        alert("✔︎ تم تحليل الازدحام وإضافة بلاغات جديدة");
     } catch (err) {
-        console.error("خطأ في تحليل الازدحام:", err);
+        console.error("Error detectTraffic:", err);
     }
 }
 
-/* ============================
-   طبقة الحوادث
-============================ */
-async function loadIncidentsLayer(map) {
+// ============================
+// تمركز الدوريات
+// ============================
+async function loadPatrolForecast() {
+    clearLayers();
+
     try {
-        const res = await fetch(`${API_BASE_URL}/incidents`);
+        const res = await fetch(`${API_BASE}/patrol-forecast`);
         const data = await res.json();
 
-        data.forEach((p) => {
-            L.circleMarker([p.lat, p.lng], {
-                radius: 8,
-                color: p.predicted_risk === "مرتفع" ? "red" :
-                       p.predicted_risk === "متوسط" ? "orange" : "green",
-                weight: 2
-            }).addTo(map);
-        });
-
-    } catch (err) {
-        console.error("خطأ في طبقة الحوادث:", err);
-    }
-}
-
-/* ============================
-   طبقة المرور
-============================ */
-async function loadTrafficLayer(map) {
-    try {
-        const res = await fetch(`${API_BASE_URL}/traffic-hotspots`);
-        const data = await res.json();
+        patrolLayer = L.layerGroup().addTo(map);
 
         data.forEach((p) => {
-            const color =
-                p.level === "مرتفع" ? "red" :
-                p.level === "متوسط" ? "orange" : "green";
-
-            L.circle([p.lat, p.lng], {
-                radius: 150,
-                color: color,
-                fillOpacity: 0.4
-            }).addTo(map);
-        });
-
-    } catch (err) {
-        console.error("خطأ في طبقة المرور:", err);
-    }
-}
-
-/* ============================
-   تمركز الدوريات
-============================ */
-async function loadPatrolForecast(map) {
-    try {
-        const res = await fetch(`${API_BASE_URL}/patrol-forecast`);
-        const data = await res.json();
-
-        data.forEach((p) => {
-            L.marker([p.lat, p.lng], { icon: L.divIcon({
+            L.marker([p.lat, p.lng], {
+                icon: L.divIcon({
                     className: "patrol-icon",
-                    html: "🚓",
+                    html: "🚔",
                     iconSize: [30, 30]
                 })
-            }).addTo(map);
+            })
+                .bindPopup("🚓 تمركز مقترح للدورية")
+                .addTo(patrolLayer);
         });
 
     } catch (err) {
-        console.error("خطأ في تمركز الدوريات:", err);
+        console.error("Error loading patrol forecast:", err);
     }
 }
 
-/* ============================
-   تحميل الخريطة الحرارية
-============================ */
-async function loadHeatmap(map) {
-    try {
-        const res = await fetch(`${API_BASE_URL}/heatmap`);
-        const data = await res.json();
+// ============================
+// Heatmap
+// ============================
+async function loadHeatmap() {
+    clearLayers();
 
-        const points = data.points.map(p => [p.lat, p.lng, p.weight]);
-        L.heatLayer(points, { radius: 25 }).addTo(map);
+    try {
+        const res = await fetch(`${API_BASE}/heatmap`);
+        const { points } = await res.json();
+
+        heatLayer = L.heatLayer(
+            points.map((p) => [p.lat, p.lng, p.weight]),
+            { radius: 25, maxZoom: 17 }
+        ).addTo(map);
 
     } catch (err) {
-        console.error("خطأ في الخريطة الحرارية:", err);
+        console.error("Error loading heatmap:", err);
     }
 }
 
-/* ============================
-   تشغيل النظام عند التحميل
-============================ */
+// ============================
+// تنظيف كل الطبقات
+// ============================
+function clearLayers() {
+    if (incidentsLayer) map.removeLayer(incidentsLayer);
+    if (trafficLayer) map.removeLayer(trafficLayer);
+    if (patrolLayer) map.removeLayer(patrolLayer);
+    if (heatLayer) map.removeLayer(heatLayer);
+
+    incidentsLayer = null;
+    trafficLayer = null;
+    patrolLayer = null;
+    heatLayer = null;
+}
+
+// ============================
+// عند تحميل الصفحة
+// ============================
 window.onload = function () {
-    loadDashboardStats();
+    updateDashboardStats();
     loadIncidents();
 };
