@@ -1,168 +1,172 @@
-// ===========================================================
-//   إعداد رابط الـ Backend
-// ===========================================================
-const API_BASE = "https://amanai-26b5.onrender.com";
+// ==============================================
+// إعداد الرابط الأساسي للـ Backend
+// ==============================================
+const API_BASE = "https://amanai-1.onrender.com";
 
-// ===========================================================
-//   تحميل بيانات الإحصائيات العلوية
-// ===========================================================
-async function loadDashboardStats() {
-    try {
-        const res = await fetch(`${API_BASE}/dashboard-stats`);
-        const data = await res.json();
+// ==============================================
+// تحميل البيانات مباشرة عند فتح الصفحة
+// ==============================================
+document.addEventListener("DOMContentLoaded", () => {
+    loadDashboard();
+});
 
-        document.getElementById("stat_high").innerText = data.high_risk;
-        document.getElementById("stat_last_hour").innerText = data.last_hour;
-        document.getElementById("stat_total").innerText = data.total;
-
-    } catch (err) {
-        console.error("❌ Stats Error:", err);
-    }
+// ======================================================
+// دالة جلب إحصائيات الـ Dashboard
+// ======================================================
+function loadDashboard() {
+    fetch(`${API_BASE}/dashboard-stats`)
+        .then((res) => res.json())
+        .then((data) => {
+            document.getElementById("totalReports").innerText = data.total;
+            document.getElementById("highReports").innerText = data.high;
+            document.getElementById("lastHourReports").innerText = data.last_hour;
+            document.getElementById("riskPercentage").innerText = data.high_pct + "%";
+        })
+        .catch((err) => console.error("Dashboard error:", err));
 }
 
-// ===========================================================
-//   رسم البلاغات على الخريطة
-// ===========================================================
-let map;
-let incidentMarkers = [];
+// ======================================================
+// إعداد الخريطة
+// ======================================================
+var map = L.map("map").setView([24.47, 39.61], 13);
 
-function initMap() {
-    map = L.map("map", { zoomControl: true }).setView([24.467, 39.6], 13);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "AmanAI Maps",
+}).addTo(map);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19
-    }).addTo(map);
+// ======================================================
+// طبقات مختلفة للخريطة
+// ======================================================
+var trafficLayer = L.layerGroup().addTo(map);
+var incidentLayer = L.layerGroup().addTo(map);
+var patrolLayer = L.layerGroup().addTo(map);
+
+// ======================================================
+// زر: تحليل الازدحام 🔥
+// ======================================================
+function detectTraffic() {
+    fetch(`${API_BASE}/detect-traffic`)
+        .then((res) => res.json())
+        .then(() => {
+            alert("تم تحليل الازدحام وإضافة بلاغات جديدة");
+            loadIncidents();
+            loadTrafficLayer();
+        })
+        .catch((err) => console.error("Error:", err));
 }
 
-function renderIncidentsOnMap(incidents) {
-    // مسح الماركر القديمة
-    incidentMarkers.forEach(m => map.removeLayer(m));
-    incidentMarkers = [];
+// ======================================================
+// جلب البلاغات من قاعدة البيانات
+// ======================================================
+function loadIncidents() {
+    incidentLayer.clearLayers();
 
-    incidents.forEach(inc => {
-        try {
-            if (!inc.coords) return;
-            const [lat, lng] = inc.coords.split(",").map(Number);
-
-            const color =
-                inc.level === "منخفض" ? "green" :
-                inc.level === "متوسط" ? "orange" : "red";
-
-            const marker = L.circleMarker([lat, lng], {
-                radius: 10,
-                color: color,
-                fillColor: color,
-                fillOpacity: 0.8
-            }).addTo(map);
-
-            marker.bindPopup(`
-                <b>نوع البلاغ:</b> ${inc.type}<br>
-                <b>الخطورة:</b> ${inc.level}<br>
-                <b>التوصية:</b> ${inc.recommendation || "—"}<br>
-                <b>الوقت:</b> ${inc.time}
-            `);
-
-            incidentMarkers.push(marker);
-        } catch (e) {
-            console.log("Bad Incident:", inc);
-        }
-    });
-}
-
-// ===========================================================
-//   تحميل البلاغات
-// ===========================================================
-async function loadIncidents() {
-    try {
-        const res = await fetch(`${API_BASE}/incidents`);
-        const data = await res.json();
-
-        renderIncidentsOnMap(data);
-
-    } catch (err) {
-        console.error("❌ Load Incidents Error:", err);
-    }
-}
-
-// ===========================================================
-//   تسجيل بلاغ جديد
-// ===========================================================
-async function saveIncident() {
-    const type = document.getElementById("incident_type").value;
-    const level = document.getElementById("incident_level").value;
-    const coords = document.getElementById("incident_coords").value;
-    const recommendation = document.getElementById("incident_reco").value;
-
-    if (!coords) return alert("الرجاء إدخال الإحداثيات");
-
-    const payload = { type, level, coords, recommendation };
-
-    try {
-        const res = await fetch(`${API_BASE}/save-incident`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
+    fetch(`${API_BASE}/incidents`)
+        .then((res) => res.json())
+        .then((data) => {
+            data.forEach(row => {
+                L.circleMarker([row.lat, row.lng], {
+                    radius: 8,
+                    color: row.predicted_risk === "مرتفع" ? "red" :
+                           row.predicted_risk === "متوسط" ? "orange" : "green",
+                    fillOpacity: 0.8,
+                })
+                .bindPopup(`
+                    <b>نوع البلاغ:</b> ${row.incident_type}<br>
+                    <b>الخطر المتوقع:</b> ${row.predicted_risk}<br>
+                    <b>الخطر المرصود:</b> ${row.observed_risk}<br>
+                    <b>التوصية:</b> ${row.recommendation}<br>
+                    <b>الوقت:</b> ${row.time}<br>
+                    <b>المصدر:</b> ${row.source}
+                `)
+                .addTo(incidentLayer);
+            });
         });
+}
 
-        const data = await res.json();
-        alert("تم تسجيل البلاغ بنجاح");
+// ======================================================
+// طبقة الحوادث 🔴
+// ======================================================
+function toggleIncidents() {
+    if (map.hasLayer(incidentLayer)) {
+        map.removeLayer(incidentLayer);
+    } else {
         loadIncidents();
-
-    } catch (err) {
-        console.error("❌ Save Error:", err);
-        alert("حدث خطأ أثناء الحفظ");
+        map.addLayer(incidentLayer);
     }
 }
 
-// ===========================================================
-//   زر: تحليل الازدحام 🔥
-// ===========================================================
-async function runTrafficForecast() {
-    try {
-        const res = await fetch(`${API_BASE}/patrol-forecast`);
-        const data = await res.json();
+// ======================================================
+// طبقة المرور 🚦
+// ======================================================
+function loadTrafficLayer() {
+    trafficLayer.clearLayers();
 
-        console.log("🔥 Patrol Forecast:", data);
-        alert("تم تنفيذ تحليل الازدحام بنجاح");
-
-    } catch (err) {
-        console.error("❌ Forecast Error:", err);
-        alert("خطأ في الاتصال");
-    }
-}
-
-// ===========================================================
-//   تحميل المخططين (مستوى الخطورة)
-// ===========================================================
-async function loadCharts() {
-    try {
-        const res = await fetch(`${API_BASE}/dashboard-stats`);
-        const stats = await res.json();
-
-        const ctx = document.getElementById("riskChart");
-
-        new Chart(ctx, {
-            type: "doughnut",
-            data: {
-                labels: ["منخفض", "متوسط", "مرتفع"],
-                datasets: [{
-                    data: [stats.low, stats.medium, stats.high],
-                    backgroundColor: ["#4CAF50", "#FFC107", "#E53935"]
-                }]
-            }
+    fetch(`${API_BASE}/traffic-hotspots`)
+        .then((res) => res.json())
+        .then((data) => {
+            data.forEach(p => {
+                L.circle([p.lat, p.lng], {
+                    radius: 120,
+                    color: p.level === "مرتفع" ? "red" :
+                           p.level === "متوسط" ? "orange" : "green",
+                    fillOpacity: 0.4,
+                })
+                .bindPopup(`📍 مستوى الازدحام: <b>${p.level}</b>`)
+                .addTo(trafficLayer);
+            });
         });
+}
 
-    } catch (err) {
-        console.log("Chart Error:", err);
+function toggleTraffic() {
+    if (map.hasLayer(trafficLayer)) {
+        map.removeLayer(trafficLayer);
+    } else {
+        loadTrafficLayer();
+        map.addLayer(trafficLayer);
     }
 }
 
-// ===========================================================
-//   عند تحميل الصفحة
-// ===========================================================
-window.onload = () => {
-    initMap();
-    loadDashboardStats();
-    loadIncidents();
-    loadCharts();
-};
+// ======================================================
+// تمركز الدوريات 🚓
+// ======================================================
+function loadPatrolForecast() {
+    patrolLayer.clearLayers();
+
+    fetch(`${API_BASE}/patrol-forecast`)
+        .then((res) => res.json())
+        .then((data) => {
+            data.forEach(p => {
+                L.marker([p.lat, p.lng])
+                    .bindPopup("🚓 موقع مقترح لتمركز الدورية")
+                    .addTo(patrolLayer);
+            });
+        });
+}
+
+function togglePatrol() {
+    if (map.hasLayer(patrolLayer)) {
+        map.removeLayer(patrolLayer);
+    } else {
+        loadPatrolForecast();
+        map.addLayer(patrolLayer);
+    }
+}
+
+// ======================================================
+// Heatmap (الخريطة الحرارية)
+// ======================================================
+function loadHeatmap() {
+    fetch(`${API_BASE}/heatmap`)
+        .then((res) => res.json())
+        .then((data) => {
+            var points = data.points.map(p => [p.lat, p.lng, p.weight]);
+            if (window.heatLayer) map.removeLayer(window.heatLayer);
+
+            window.heatLayer = L.heatLayer(points, {
+                radius: 25,
+                blur: 15,
+                maxZoom: 17
+            }).addTo(map);
+        });
+}
